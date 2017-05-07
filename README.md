@@ -9,4 +9,4 @@ References:
 
 [adafruit]: https://github.com/adafruit/Adafruit_Python_PCA9685
 [i2c]: http://flipthatbit.net/2011/04/interfacing-i2c-the-easy-way/
-[image]: https://github.com/sergiorb/pca9685-golang/tree/master/imgs/pca9685_leds.jpg
+[image]: https://github.com/sergiorb/pca9685-golang/blob/master/imgs/pca9685_leds.jpg?raw=true
