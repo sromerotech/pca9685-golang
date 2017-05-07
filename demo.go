@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/op/go-logging"
-	"github.com/sergiorb/pcm9685-golang/device"
+	"github.com/sergiorb/pca9685-golang/device"
 	"golang.org/x/exp/io/i2c"
 	"os"
 	"time"
@@ -40,15 +40,15 @@ func main() {
 
 		var deviceLog = logging.MustGetLogger("PCA9685")
 
-		pcm9685 := device.NewPCA9685(i2cDevice, "PWM Controller", MIN_PULSE, MAX_PULSE, deviceLog)
+		pca9685 := device.NewPCA9685(i2cDevice, "PWM Controller", MIN_PULSE, MAX_PULSE, deviceLog)
 
-		pcm9685.Init()
+		pca9685.Init()
 
-		pcm9685.Demo([]int{0, 1, 2})
+		pca9685.Demo([]int{0, 1, 2})
 
-		pwm00 := pcm9685.NewPwm(0)
-		pwm01 := pcm9685.NewPwm(1)
-		pwm02 := pcm9685.NewPwm(2)
+		pwm00 := pca9685.NewPwm(0)
+		pwm01 := pca9685.NewPwm(1)
+		pwm02 := pca9685.NewPwm(2)
 
 		_ = pwm00.SetPercentage(15.0)
 
@@ -58,6 +58,6 @@ func main() {
 
 		time.Sleep(2 * time.Second)
 
-		pcm9685.SwichOff([]int{0, 1, 2})
+		pca9685.SwichOff([]int{0, 1, 2})
 	}
 }
