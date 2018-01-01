@@ -22,8 +22,13 @@ const (
 	ALL_LED_OFF_L byte = 0xFC
 	ALL_LED_OFF_H byte = 0xFD
 	OUTDRV        byte = 0x04
+	ALLCALL		  byte = 0x01
 	SLEEP         byte = 0x10
 	BYTE          byte = 0xFF
+
+	DEFAULT_FREQ  float32 = 1000.0
+	OSC_FREQ	  float32 = 25000000.0
+	STEP_COUNT    float32 = 4096.0
 )
 
 type PCA9685 struct {
@@ -33,13 +38,7 @@ type PCA9685 struct {
 	minPulse  int
 	maxPulse  int
 	log       *logging.Logger
-	frequency float32
-}
-
-type Pwm struct {
-	pca        *PCA9685
-	pin        int
-	last_value float32
+	Frequency float32
 }
 
 func NewPCA9685(i2cDevice *i2c.Device, name string, minPulse int, maxPulse int, log *logging.Logger) *PCA9685 {
@@ -53,18 +52,7 @@ func NewPCA9685(i2cDevice *i2c.Device, name string, minPulse int, maxPulse int, 
 		minPulse:  minPulse,
 		maxPulse:  maxPulse,
 		log:       log,
-		frequency: 1000.0,
-	}
-}
-
-func (p *PCA9685) NewPwm(pin int) *Pwm {
-
-	p.log.Info(fmt.Sprintf("Creating a new Pwm controler at pin %v from %v", pin, p.name))
-
-	return &Pwm{
-		pca:        p,
-		pin:        pin,
-		last_value: 0.0,
+		Frequency: DEFAULT_FREQ,
 	}
 }
 
@@ -75,37 +63,27 @@ func (p *PCA9685) Init() {
 		p.log.Warning(fmt.Sprintf("Device \"%v\" already initiated!", p.name))
 
 	} else {
-
 		p.log.Info(fmt.Sprintf("Initiating \"%v\" PCA9685 device", p.name))
 
-		p.set_all_pwm(0, 0)
-		p.i2cBus.WriteReg(MODE2, []byte{OUTDRV})
+		p.SetAllPwm(0, 0)
+		p.writeByte(MODE2, OUTDRV)
+		p.writeByte(MODE1, ALLCALL)
 
 		time.Sleep(5 * time.Millisecond)
 
-		var mode1 byte
-		err := p.i2cBus.ReadReg(MODE1, []byte{mode1})
-
-		if err != nil {
-
-			p.log.Error("Can't read!")
-			return
-		}
-
-		mode1 &= BYTE
-		mode1 = mode1 & ^SLEEP
-
-		p.i2cBus.WriteReg(MODE1, []byte{mode1 & 0xFF})
+		mode := p.readByte(MODE1)
+		mode = mode & ^SLEEP
+		p.writeByte(MODE1, mode)
 
 		time.Sleep(5 * time.Millisecond)
 
-		p.set_pwm_freq(p.frequency)
+		p.setPwmFrequency(p.Frequency)
 
 		p.initiated = true
 	}
 }
 
-func (p *PCA9685) SwichOn(pwm []int) error {
+func (p *PCA9685) SwitchOn(pwm []int) error {
 
 	if !p.initiated {
 
@@ -114,15 +92,15 @@ func (p *PCA9685) SwichOn(pwm []int) error {
 
 	for i := 0; i < len(pwm); i++ {
 
-		p.log.Info(fmt.Sprintf("Swiching on pwm #%v", pwm[i]))
+		p.log.Info(fmt.Sprintf("Switching on pwm #%v", pwm[i]))
 
-		p.set_servo_pulse(pwm[i], p.maxPulse)
+		p.setServoPulse(pwm[i], p.maxPulse)
 	}
 
 	return nil
 }
 
-func (p *PCA9685) SwichOff(pwm []int) error {
+func (p *PCA9685) SwitchOff(pwm []int) error {
 
 	if !p.initiated {
 
@@ -131,9 +109,9 @@ func (p *PCA9685) SwichOff(pwm []int) error {
 
 	for i := 0; i < len(pwm); i++ {
 
-		p.log.Info(fmt.Sprintf("Swiching off pwm #%v", pwm[i]))
+		p.log.Info(fmt.Sprintf("Switching off pwm #%v", pwm[i]))
 
-		p.set_servo_pulse(pwm[i], p.minPulse)
+		p.setServoPulse(pwm[i], p.minPulse)
 	}
 
 	return nil
@@ -150,12 +128,12 @@ func (p *PCA9685) FadeInOut(pwmNumber int) error {
 
 	for i := p.minPulse; i < p.maxPulse; i++ {
 
-		p.set_servo_pulse(pwmNumber, i)
+		p.setServoPulse(pwmNumber, i)
 	}
 
 	for i := p.maxPulse; i > p.minPulse; i-- {
 
-		p.set_servo_pulse(pwmNumber, i)
+		p.setServoPulse(pwmNumber, i)
 	}
 
 	return nil
@@ -167,13 +145,13 @@ func (p *PCA9685) Wink(pwm []int, times int, speed int) {
 
 	for i := 0; i < times; i++ {
 
-		p.SwichOn(pwm)
+		p.SwitchOn(pwm)
 
 		var halfSpeed time.Duration = time.Duration(speed/2) * time.Millisecond
 
 		time.Sleep(halfSpeed)
 
-		p.SwichOff(pwm)
+		p.SwitchOff(pwm)
 
 		time.Sleep(halfSpeed)
 	}
@@ -189,98 +167,99 @@ func (p *PCA9685) Demo(pwm []int) {
 	p.Wink(pwm, 4, 800)
 }
 
-func (p *PCA9685) set_pwm_freq(freqHz float32) {
+func (p *PCA9685) setPwmFrequency(freqHz float32) {
 
-	var prescaleValue float32 = 25000000.0 // 25MHz
-	prescaleValue /= 4096.0
-	prescaleValue /= freqHz
-	prescaleValue -= 1.0
+	preScaleValue := OSC_FREQ // 25MHz
+	preScaleValue /= STEP_COUNT
+	preScaleValue /= freqHz
+	preScaleValue -= 1.0
 
 	p.log.Debug(fmt.Sprintf("Setting PWM frequency to %v Hz", freqHz))
-	p.log.Debug(fmt.Sprintf("Esimated pre-scale: %v", prescaleValue))
+	p.log.Debug(fmt.Sprintf("Estimated pre-scale: %v", preScaleValue))
 
-	prescale := int(math.Floor(float64(prescaleValue + 0.5)))
+	preScale := int(math.Floor(float64(preScaleValue + 0.5)))
 
-	p.log.Debug(fmt.Sprintf("Final pre.scale: %v", prescale))
+	p.log.Debug(fmt.Sprintf("Final pre-scale: %v", preScale))
 
-	var old_mode byte
-	err := p.i2cBus.ReadReg(MODE1, []byte{old_mode})
+	oldMode := p.read8(MODE1)
 
-	if err != nil {
+	newMode := (oldMode & 0x7F) | 0x10
 
-		p.log.Error("Can't read!")
-	}
-
-	old_mode &= BYTE
-
-	new_mode := (old_mode & 0x7F) | 0x10
-
-	p.i2cBus.WriteReg(MODE1, []byte{new_mode & BYTE})
-	p.i2cBus.WriteReg(PRESCALE, []byte{byte(prescale) & BYTE})
-	p.i2cBus.WriteReg(MODE1, []byte{old_mode & BYTE})
+	p.write8(MODE1, newMode)
+	p.write8(PRESCALE, preScale)
+	p.write8(MODE1, oldMode)
 
 	time.Sleep(5 * time.Millisecond)
 
-	p.i2cBus.WriteReg(MODE1, []byte{old_mode&BYTE | 0x80})
+	p.write8(MODE1, oldMode| 0x80)
 }
 
-func (p *PCA9685) set_servo_pulse(pwmNumber int, pulse int) {
+func (p *PCA9685) setServoPulse(pwmNumber int, pulse int) {
 
-	var pulse_length float32 = 1000000
+	var pulseLength float32 = 1000000
 
-	pulse_length /= float32(60)
+	pulseLength /= float32(60)
 
-	//p.log.Debug(fmt.Sprintf("%vus per period", pulse_length))
+	//p.log.Debug(fmt.Sprintf("%vus per period", pulseLength))
 
-	pulse_length /= float32(4096)
+	pulseLength /= STEP_COUNT
 
-	//p.log.Debug(fmt.Sprintf("%vus per bit", pulse_length))
+	//p.log.Debug(fmt.Sprintf("%vus per bit", pulseLength))
 
-	var pulseF float32 = float32(pulse)
+	pulseF := float32(pulse)
 
-	pulseF /= pulse_length
+	pulseF /= pulseLength
 
 	p.log.Debug(fmt.Sprintf("Setting pwm #%v to pulse %v", pwmNumber, pulseF))
 
-	p.set_pwm(pwmNumber, 0, int(pulseF))
+	p.setPwm(pwmNumber, 0, int(pulseF))
 }
 
-func (p *PCA9685) set_all_pwm(on int, off int) {
-
-	onB := byte(on) & BYTE
-	offB := byte(off) & BYTE
-
-	p.i2cBus.WriteReg(ALL_LED_ON_L, []byte{onB & BYTE})
-	p.i2cBus.WriteReg(ALL_LED_ON_H, []byte{onB & BYTE})
-	p.i2cBus.WriteReg(ALL_LED_OFF_L, []byte{offB & BYTE})
-	p.i2cBus.WriteReg(ALL_LED_OFF_H, []byte{offB & BYTE})
+func (p *PCA9685) SetAllPwm(on int, off int) {
+	p.write8(ALL_LED_ON_L, on)
+	p.write8(ALL_LED_ON_H, on >> 8)
+	p.write8(ALL_LED_OFF_L, off)
+	p.write8(ALL_LED_OFF_H, off >> 8)
 }
 
-func (p *PCA9685) set_pwm(pwm int, on int, off int) {
-
-	onB := byte(on) & BYTE
-	offB := byte(off) & BYTE
-
-	p.i2cBus.WriteReg(LED0_ON_L+byte(4)*byte(pwm), []byte{onB & BYTE})
-	p.i2cBus.WriteReg(LED0_ON_H+byte(4)*byte(pwm), []byte{onB >> 8})
-	p.i2cBus.WriteReg(LED0_OFF_L+byte(4)*byte(pwm), []byte{offB & BYTE})
-	p.i2cBus.WriteReg(LED0_OFF_H+byte(4)*byte(pwm), []byte{offB >> 8})
+func (p *PCA9685) setPwm(pwm int, on int, off int) {
+	p.write8(LED0_ON_L+byte(4)*byte(pwm), on)
+	p.write8(LED0_ON_H+byte(4)*byte(pwm), on >> 8)
+	p.write8(LED0_OFF_L+byte(4)*byte(pwm), off)
+	p.write8(LED0_OFF_H+byte(4)*byte(pwm), off >> 8)
 }
 
-func (pwm *Pwm) SetPercentage(percentage float32) error {
+func (p *PCA9685) write8(reg byte, intVal int) {
+	byteVal := byte(intVal) & BYTE
 
-	if percentage < 0.0 || percentage > 100.0 {
+	p.writeByte(reg, byteVal)
+}
 
-		return errors.New(fmt.Sprintf("Percetage must be between 0.0 and 100.0. Got %v.", percentage))
+func (p *PCA9685) writeByte(reg byte, byteVal byte) {
+	err := p.i2cBus.WriteReg(reg, []byte{byteVal})
+	if err != nil {
+		p.log.Error(fmt.Sprintf("Failed to read from register %#x.", reg))
+		p.log.Error(err.Error())
 	}
 
-	pwm.pca.log.Info(fmt.Sprintf("Setting pwm #%v to %v%% at \"%v\" device.", pwm.pin, percentage, pwm.pca.name))
+	p.log.Debug(fmt.Sprintf("Wrote %#x to register %#x.", byteVal, reg))
+}
 
-	max := pwm.pca.maxPulse - pwm.pca.minPulse
+func (p *PCA9685) read8(reg byte) int {
+	byteVal := p.readByte(reg)
 
-	value := ((float32(percentage) * float32(max)) / 100.0) + float32(pwm.pca.minPulse)
+	return int(byteVal)
+}
 
-	pwm.pca.set_servo_pulse(pwm.pin, int(value))
+func (p *PCA9685) readByte(reg byte) byte {
+	buf := make([]byte, 1)
+	err := p.i2cBus.ReadReg(reg, buf)
+	if err != nil {
+		p.log.Error(fmt.Sprintf("Failed to read from register %#x.", reg))
+		p.log.Error(err.Error())
+	}
 
-	return nil
+	p.log.Debug(fmt.Sprintf("Read %#x from register %#x.", buf[0], reg))
+
+	return buf[0]
 }
