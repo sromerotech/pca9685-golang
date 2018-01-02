@@ -22,12 +22,12 @@ const (
 	ALL_LED_OFF_L byte = 0xFC
 	ALL_LED_OFF_H byte = 0xFD
 	OUTDRV        byte = 0x04
-	ALLCALL		  byte = 0x01
+	ALLCALL       byte = 0x01
 	SLEEP         byte = 0x10
 	BYTE          byte = 0xFF
 
 	DEFAULT_FREQ  float32 = 1000.0
-	OSC_FREQ	  float32 = 25000000.0
+	OSC_FREQ      float32 = 25000000.0
 	STEP_COUNT    float32 = 4096.0
 )
 
