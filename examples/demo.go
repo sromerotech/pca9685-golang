@@ -58,6 +58,6 @@ func main() {
 
 		time.Sleep(2 * time.Second)
 
-		pca9685.SwichOff([]int{0, 1, 2})
+		pca9685.SwitchOff([]int{0, 1, 2})
 	}
 }
